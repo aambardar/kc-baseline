@@ -160,3 +160,4 @@ cython_debug/
 # Custom ignorable items
 data/
 out/
+anaconda_projects/

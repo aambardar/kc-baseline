@@ -158,3 +158,113 @@ def extract_distribution_stats(pd_frame, numerical_col):
     tmp_df.columns = ['%s_%s'% (numerical_col, i) for i in tmp_df.columns]
     logger_setup.logger.debug('... FINISH')
     return tmp_df
+
+def classify_features(df, n_cat_threshold, threshold_type='ABS'):
+    """
+    Classifies the features of a DataFrame into different categories such as numerical,
+    categorical, temporal, binary, and object. The classification is based on data types
+    and thresholds for unique values.
+
+    Parameters:
+        df (DataFrame): The input DataFrame containing features to classify.
+        n_cat_threshold (float): Threshold for the number of unique values or percentage to
+        distinguish between discrete and continuous numerical features or nominal
+        and general object categories.
+        threshold_type (str): Type of threshold to use, either 'ABS' for absolute count
+        or 'PCT' for percentage relative to the number of observations in a column.
+        Defaults to 'ABS'.
+
+    Returns:
+        A dictionary categorising feature names into seven classes
+        ('numerical_continuous', 'numerical_discrete', 'categorical_nominal',
+        'categorical_ordinal', 'object', 'temporal', and 'binary').
+    """
+    feature_types = {
+        'numerical_continuous': [],
+        'numerical_discrete': [],
+        'categorical_nominal': [],
+        'categorical_ordinal': [],
+        'object': [],
+        'temporal': [],
+        'binary': []
+    }
+
+    for column in df.columns:
+        # Skip target variable
+        if column in ignorables_cols:
+            continue
+
+        # Check if a column is temporal based on name or type
+        is_datetime = pd.api.types.is_datetime64_any_dtype(df[column])
+        is_timedelta = pd.api.types.is_timedelta64_dtype(df[column])
+        has_temporal_name = any(pattern in column for pattern in temporal_cols_name_pattern)
+
+        # Check if a column is ordinal based on name
+        has_ordinal_match = any(column == ordinal for ordinal in ordinal_cols)
+
+        # Check if a column is boolean based on type
+        is_boolean = pd.api.types.is_bool_dtype(df[column])
+
+        # Check if a column is numerical or integer based on type
+        is_numeric = pd.api.types.is_numeric_dtype(df[column])
+        is_integer = pd.api.types.is_integer_dtype(df[column])
+
+        # Check if a column is categorical based on type
+        is_categorical = pd.api.types.is_categorical_dtype(df[column])
+
+        # Check if a column is string or object based on type
+        is_string_object = pd.api.types.is_string_dtype(df[column])   # Checks both object and string dtypes
+
+        # Temporal features
+        if is_datetime or is_timedelta or has_temporal_name:
+            feature_types['temporal'].append(column)
+
+        # Ordinal features
+        elif has_ordinal_match:
+            feature_types['categorical_ordinal'].append(column)
+
+        # Binary features
+        elif df[column].nunique() == 2 or is_boolean:
+            feature_types['binary'].append(column)
+
+        # Numerical features
+        elif is_numeric:
+            # Basic heuristic: if the number of unique values is small relative to the not null values
+            if is_integer:
+                if threshold_type == 'ABS':
+                    if df[column].nunique() <= n_cat_threshold:
+                        feature_types['numerical_discrete'].append(column)
+                    else:
+                        feature_types['numerical_continuous'].append(column)
+                elif threshold_type == 'PCT':
+                    if df[column].nunique()/df[column].count() <= n_cat_threshold:
+                        feature_types['numerical_discrete'].append(column)
+                    else:
+                        feature_types['numerical_continuous'].append(column)
+            else:
+                feature_types['numerical_continuous'].append(column)
+
+        # Categorical features
+        elif is_categorical:
+            feature_types['categorical_nominal'].append(column)
+
+        elif is_string_object:
+            # Basic heuristic: if the number of unique values is small relative to the not null values
+            if threshold_type == 'ABS':
+                if df[column].nunique() <= n_cat_threshold:
+                    feature_types['categorical_nominal'].append(column)
+                else:
+                    feature_types['object'].append(column)
+            elif threshold_type == 'PCT':
+                if df[column].nunique()/df[column].count() <= n_cat_threshold:
+                    feature_types['categorical_nominal'].append(column)
+                else:
+                    feature_types['object'].append(column)
+
+    # Print summary
+    print("Feature Type Summary:")
+    for ftype, features in feature_types.items():
+        print(f"\n{ftype.title()} Features ({len(features)}):")
+        print(features)
+
+    return feature_types
